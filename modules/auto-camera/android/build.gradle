@@ -1,0 +1,24 @@
+plugins {
+  id 'com.android.library'
+  id 'expo-module-gradle-plugin'
+}
+
+group = 'expo.modules.autocamera'
+version = '1.0.0'
+
+android {
+  namespace "expo.modules.autocamera"
+  defaultConfig {
+    versionCode 1
+    versionName '1.0.0'
+  }
+}
+
+dependencies {
+  def camerax = "1.4.2"
+  implementation "androidx.camera:camera-core:${camerax}"
+  implementation "androidx.camera:camera-camera2:${camerax}"
+  implementation "androidx.camera:camera-lifecycle:${camerax}"
+  implementation "androidx.lifecycle:lifecycle-service:2.8.7"
+  implementation "androidx.core:core-ktx:1.13.1"
+}

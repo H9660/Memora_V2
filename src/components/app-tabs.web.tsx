@@ -7,7 +7,7 @@ import {
   TabListProps,
 } from 'expo-router/ui';
 import { SymbolView } from 'expo-symbols';
-import { Pressable, useColorScheme, View, StyleSheet } from 'react-native';
+import { Pressable, PressableProps, useColorScheme, View, StyleSheet } from 'react-native';
 
 import { Colors, MaxContentWidth, Spacing } from '@/constants/theme';
 
@@ -25,7 +25,7 @@ export default function AppTabs() {
             <TabButton>Home</TabButton>
           </TabTrigger>
           <TabTrigger name="explore" href="/explore" asChild>
-            <TabButton>Explore</TabButton>
+            <TabButton>Search</TabButton>
           </TabTrigger>
         </CustomTabList>
       </TabList>
@@ -34,8 +34,9 @@ export default function AppTabs() {
 }
 
 export function TabButton({ children, isFocused, ...props }: TabTriggerSlotProps) {
+  // TabTrigger's slot ref is typed for a generic component; Pressable needs a host-element ref.
   return (
-    <Pressable {...props} style={({ pressed }) => pressed && styles.pressed}>
+    <Pressable {...(props as PressableProps)} style={({ pressed }) => pressed && styles.pressed}>
       <ThemedView
         type={isFocused ? 'backgroundSelected' : 'backgroundElement'}
         style={styles.tabButtonView}>
@@ -55,7 +56,7 @@ export function CustomTabList(props: TabListProps) {
     <View {...props} style={styles.tabListContainer}>
       <ThemedView type="backgroundElement" style={styles.innerContainer}>
         <ThemedText type="smallBold" style={styles.brandText}>
-          Expo Starter
+          Memora
         </ThemedText>
 
         {props.children}

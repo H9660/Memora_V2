@@ -1,0 +1,7 @@
+{
+  "name": "auto-camera",
+  "version": "1.0.0",
+  "description": "Interval photo capture in an Android camera foreground service (Memora local module)",
+  "main": "index.ts",
+  "private": true
+}

@@ -1,0 +1,9 @@
+expo.modules.autocamera.auto-camera-pngs-0 C:\IS\Memora\modules\auto-camera\android\build\generated\res\pngs\debug
+expo.modules.autocamera.auto-camera-updated_navigation_xml-1 C:\IS\Memora\modules\auto-camera\android\build\generated\updated_navigation_xml\debug
+expo.modules.autocamera.auto-camera-mergeDebugResources-2 C:\IS\Memora\modules\auto-camera\android\build\intermediates\incremental\debug\mergeDebugResources\merged.dir
+expo.modules.autocamera.auto-camera-mergeDebugResources-3 C:\IS\Memora\modules\auto-camera\android\build\intermediates\incremental\debug\mergeDebugResources\stripped.dir
+expo.modules.autocamera.auto-camera-debug-4 C:\IS\Memora\modules\auto-camera\android\build\intermediates\merged_res\debug\mergeDebugResources
+expo.modules.autocamera.auto-camera-debug-5 C:\IS\Memora\modules\auto-camera\android\build\intermediates\packaged_res\debug\packageDebugResources
+expo.modules.autocamera.auto-camera-debug-6 C:\IS\Memora\modules\auto-camera\android\src\debug\res
+expo.modules.autocamera.auto-camera-main-7 C:\IS\Memora\modules\auto-camera\android\src\main\res
+gradleHome-0 C:\Users\lohah\.gradle

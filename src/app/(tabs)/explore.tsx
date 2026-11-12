@@ -1,180 +1,262 @@
-import { Image } from 'expo-image';
-import { SymbolView } from 'expo-symbols';
-import { Platform, Pressable, ScrollView, StyleSheet } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import {
+  ActivityIndicator,
+  FlatList,
+  Pressable,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from "react-native";
+import { useFocusEffect } from "expo-router";
+import { useCallback, useEffect, useState } from "react";
 
-import { ExternalLink } from '@/components/external-link';
-import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
-import { Collapsible } from '@/components/ui/collapsible';
-import { WebBadge } from '@/components/web-badge';
-import { BottomTabInset, MaxContentWidth, Spacing } from '@/constants/theme';
-import { useTheme } from '@/hooks/use-theme';
+import { MemoryCard } from "@/components/memory-card";
+import { BottomTabInset } from "@/constants/theme";
+import { memoryService } from "@/services/memory-service";
+import { MemoryEvent } from "@/types/memory";
 
-export default function TabTwoScreen() {
-  const safeAreaInsets = useSafeAreaInsets();
-  const insets = {
-    ...safeAreaInsets,
-    bottom: safeAreaInsets.bottom + BottomTabInset + Spacing.three,
-  };
-  const theme = useTheme();
+const SEARCH_DEBOUNCE_MS = 250;
 
-  const contentPlatformStyle = Platform.select({
-    android: {
-      paddingTop: insets.top,
-      paddingLeft: insets.left,
-      paddingRight: insets.right,
-      paddingBottom: insets.bottom,
-    },
-    web: {
-      paddingTop: Spacing.six,
-      paddingBottom: Spacing.four,
-    },
-  });
+type SearchResult = { query: string; run: number } & (
+  | { status: "done"; results: MemoryEvent[] }
+  | { status: "error" }
+);
+
+type SearchState =
+  | { status: "idle" }
+  | { status: "searching" }
+  | { status: "error" }
+  | { status: "done"; results: MemoryEvent[] };
+
+export default function SearchScreen() {
+  const [query, setQuery] = useState("");
+  // Last completed search; the visible state is derived from it and the current query.
+  const [result, setResult] = useState<SearchResult | null>(null);
+  // Bumped on focus so results reflect memories added or deleted elsewhere.
+  const [focusCount, setFocusCount] = useState(0);
+
+  useFocusEffect(
+    useCallback(() => {
+      setFocusCount((count) => count + 1);
+    }, []),
+  );
+
+  const trimmed = query.trim();
+
+  useEffect(() => {
+    if (trimmed.length === 0) return;
+
+    let active = true;
+    const timer = setTimeout(() => {
+      memoryService
+        .search(trimmed)
+        .then((results) => {
+          if (active) {
+            setResult({ query: trimmed, run: focusCount, status: "done", results });
+          }
+        })
+        .catch((error) => {
+          console.warn(
+            "Search failed:",
+            error instanceof Error ? error.message : error,
+          );
+          if (active) setResult({ query: trimmed, run: focusCount, status: "error" });
+        });
+    }, SEARCH_DEBOUNCE_MS);
+
+    return () => {
+      active = false;
+      clearTimeout(timer);
+    };
+  }, [trimmed, focusCount]);
+
+  const isCurrent =
+    result !== null && result.query === trimmed && result.run === focusCount;
+
+  const state: SearchState =
+    trimmed.length === 0
+      ? { status: "idle" }
+      : !isCurrent
+        ? { status: "searching" }
+        : result.status === "error"
+          ? { status: "error" }
+          : { status: "done", results: result.results };
+
+  // While a new search runs, keep showing the previous matches instead of flashing empty.
+  const results =
+    state.status === "done"
+      ? state.results
+      : state.status === "searching" && result?.status === "done"
+        ? result.results
+        : [];
 
   return (
-    <ScrollView
-      style={[styles.scrollView, { backgroundColor: theme.background }]}
-      contentInset={insets}
-      contentContainerStyle={[styles.contentContainer, contentPlatformStyle]}>
-      <ThemedView style={styles.container}>
-        <ThemedView style={styles.titleContainer}>
-          <ThemedText type="subtitle">Explore</ThemedText>
-          <ThemedText style={styles.centerText} themeColor="textSecondary">
-            This starter app includes example{'\n'}code to help you get started.
-          </ThemedText>
+    <FlatList
+      style={styles.list}
+      contentContainerStyle={styles.container}
+      data={results}
+      keyExtractor={(memory) => memory.id}
+      keyboardShouldPersistTaps="handled"
+      ListHeaderComponent={
+        <View>
+          <Text style={styles.title}>Search</Text>
+          <Text style={styles.subtitle}>
+            Find a memory by its title, note or place.
+          </Text>
 
-          <ExternalLink href="https://docs.expo.dev" asChild>
-            <Pressable style={({ pressed }) => pressed && styles.pressed}>
-              <ThemedView type="backgroundElement" style={styles.linkButton}>
-                <ThemedText type="link">Expo documentation</ThemedText>
-                <SymbolView
-                  tintColor={theme.text}
-                  name={{ ios: 'arrow.up.right.square', android: 'link', web: 'link' }}
-                  size={12}
-                />
-              </ThemedView>
+          <View style={styles.inputRow}>
+          <TextInput
+            style={styles.input}
+            placeholder="Search your memories..."
+            placeholderTextColor="#9CA3AF"
+            value={query}
+            onChangeText={setQuery}
+            autoCorrect={false}
+            returnKeyType="search"
+            accessibilityLabel="Search memories"
+          />
+          {query.length > 0 && (
+            <Pressable
+              onPress={() => setQuery("")}
+              style={styles.clear}
+              accessibilityRole="button"
+              accessibilityLabel="Clear search"
+              hitSlop={8}
+            >
+              <Text style={styles.clearText}>✕</Text>
             </Pressable>
-          </ExternalLink>
-        </ThemedView>
+          )}
+          </View>
 
-        <ThemedView style={styles.sectionsWrapper}>
-          <Collapsible title="File-based routing">
-            <ThemedText type="small">
-              This app has two screens: <ThemedText type="code">src/app/index.tsx</ThemedText> and{' '}
-              <ThemedText type="code">src/app/explore.tsx</ThemedText>
-            </ThemedText>
-            <ThemedText type="small">
-              The layout file in <ThemedText type="code">src/app/_layout.tsx</ThemedText> sets up
-              the tab navigator.
-            </ThemedText>
-            <ExternalLink href="https://docs.expo.dev/router/introduction">
-              <ThemedText type="linkPrimary">Learn more</ThemedText>
-            </ExternalLink>
-          </Collapsible>
-
-          <Collapsible title="Android, iOS, and web support">
-            <ThemedView type="backgroundElement" style={styles.collapsibleContent}>
-              <ThemedText type="small">
-                You can open this project on Android, iOS, and the web. To open the web version,
-                press <ThemedText type="smallBold">w</ThemedText> in the terminal running this
-                project.
-              </ThemedText>
-              <Image
-                source={require('@/assets/images/tutorial-web.png')}
-                style={styles.imageTutorial}
-              />
-            </ThemedView>
-          </Collapsible>
-
-          <Collapsible title="Images">
-            <ThemedText type="small">
-              For static images, you can use the <ThemedText type="code">@2x</ThemedText> and{' '}
-              <ThemedText type="code">@3x</ThemedText> suffixes to provide files for different
-              screen densities.
-            </ThemedText>
-            <Image source={require('@/assets/images/react-logo.png')} style={styles.imageReact} />
-            <ExternalLink href="https://reactnative.dev/docs/images">
-              <ThemedText type="linkPrimary">Learn more</ThemedText>
-            </ExternalLink>
-          </Collapsible>
-
-          <Collapsible title="Light and dark mode components">
-            <ThemedText type="small">
-              This template has light and dark mode support. The{' '}
-              <ThemedText type="code">useColorScheme()</ThemedText> hook lets you inspect what the
-              user&apos;s current color scheme is, and so you can adjust UI colors accordingly.
-            </ThemedText>
-            <ExternalLink href="https://docs.expo.dev/develop/user-interface/color-themes/">
-              <ThemedText type="linkPrimary">Learn more</ThemedText>
-            </ExternalLink>
-          </Collapsible>
-
-          <Collapsible title="Animations">
-            <ThemedText type="small">
-              This template includes an example of an animated component. The{' '}
-              <ThemedText type="code">src/components/ui/collapsible.tsx</ThemedText> component uses
-              the powerful <ThemedText type="code">react-native-reanimated</ThemedText> library to
-              animate opening this hint.
-            </ThemedText>
-          </Collapsible>
-        </ThemedView>
-        {Platform.OS === 'web' && <WebBadge />}
-      </ThemedView>
-    </ScrollView>
+          {state.status !== "idle" && results.length > 0 && (
+            <Text style={styles.count}>
+              {results.length} {results.length === 1 ? "memory" : "memories"}
+            </Text>
+          )}
+        </View>
+      }
+      renderItem={({ item }) => <MemoryCard memory={item} showDate />}
+      ListEmptyComponent={
+        state.status === "searching" && results.length === 0 ? (
+          <ActivityIndicator style={styles.loading} color="#6B7280" />
+        ) : state.status === "error" ? (
+          <View style={styles.emptyCard}>
+            <Text style={styles.emptyTitle}>Search failed</Text>
+            <Text style={styles.emptyText}>
+              Something went wrong searching your memories.
+            </Text>
+            <Pressable
+              onPress={() => setFocusCount((count) => count + 1)}
+              accessibilityRole="button"
+            >
+              <Text style={styles.retry}>Try again</Text>
+            </Pressable>
+          </View>
+        ) : state.status === "done" ? (
+          <View style={styles.emptyCard}>
+            <Text style={styles.emptyTitle}>No matches</Text>
+            <Text style={styles.emptyText}>
+              No memories contain “{query.trim()}”.
+            </Text>
+          </View>
+        ) : (
+          <View style={styles.emptyCard}>
+            <Text style={styles.emptyText}>
+              Search runs entirely on this device. Try a word from a note or a
+              place name.
+            </Text>
+          </View>
+        )
+      }
+    />
   );
 }
 
 const styles = StyleSheet.create({
-  scrollView: {
+  list: {
     flex: 1,
+    backgroundColor: "#F7F8FA",
   },
-  contentContainer: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-  },
+
   container: {
-    maxWidth: MaxContentWidth,
-    flexGrow: 1,
+    padding: 24,
+    paddingTop: 70,
+    paddingBottom: BottomTabInset + 24,
   },
-  titleContainer: {
-    gap: Spacing.three,
-    alignItems: 'center',
-    paddingHorizontal: Spacing.four,
-    paddingVertical: Spacing.six,
+
+  title: {
+    fontSize: 30,
+    fontWeight: "800",
+    color: "#1B1D22",
   },
-  centerText: {
-    textAlign: 'center',
+
+  subtitle: {
+    marginTop: 6,
+    fontSize: 15,
+    color: "#6B7280",
   },
-  pressed: {
-    opacity: 0.7,
+
+  inputRow: {
+    marginTop: 24,
+    marginBottom: 16,
+    justifyContent: "center",
   },
-  linkButton: {
-    flexDirection: 'row',
-    paddingHorizontal: Spacing.four,
-    paddingVertical: Spacing.two,
-    borderRadius: Spacing.five,
-    justifyContent: 'center',
-    gap: Spacing.one,
-    alignItems: 'center',
+
+  input: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 14,
+    paddingLeft: 16,
+    paddingRight: 48,
+    paddingVertical: 14,
+    fontSize: 15,
   },
-  sectionsWrapper: {
-    gap: Spacing.five,
-    paddingHorizontal: Spacing.four,
-    paddingTop: Spacing.three,
+
+  clear: {
+    position: "absolute",
+    right: 4,
+    width: 40,
+    height: 40,
+    alignItems: "center",
+    justifyContent: "center",
   },
-  collapsibleContent: {
-    alignItems: 'center',
+
+  clearText: {
+    fontSize: 16,
+    color: "#6B7280",
   },
-  imageTutorial: {
-    width: '100%',
-    aspectRatio: 296 / 171,
-    borderRadius: Spacing.three,
-    marginTop: Spacing.two,
+
+  count: {
+    marginBottom: 12,
+    fontSize: 13,
+    fontWeight: "700",
+    color: "#777E89",
+    letterSpacing: 1,
   },
-  imageReact: {
-    width: 100,
-    height: 100,
-    alignSelf: 'center',
+
+  loading: {
+    marginTop: 24,
+  },
+
+  emptyCard: {
+    padding: 20,
+    borderRadius: 16,
+    backgroundColor: "#FFFFFF",
+  },
+
+  emptyTitle: {
+    fontSize: 17,
+    fontWeight: "700",
+  },
+
+  emptyText: {
+    marginTop: 6,
+    color: "#6B7280",
+  },
+
+  retry: {
+    marginTop: 12,
+    fontSize: 15,
+    fontWeight: "700",
+    color: "#1B1D22",
   },
 });
