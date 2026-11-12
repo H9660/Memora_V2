@@ -65,6 +65,12 @@ export class AutoCaptureRepository {
     return rows.map(toCapture);
   }
 
+  async listAll(): Promise<AutoCapture[]> {
+    const db = await this.openDb();
+    const rows = await db.getAllAsync<Row>('SELECT * FROM auto_captures ORDER BY captured_at ASC');
+    return rows.map(toCapture);
+  }
+
   async listOlderThan(cutoffIso: string): Promise<AutoCapture[]> {
     const db = await this.openDb();
     const rows = await db.getAllAsync<Row>('SELECT * FROM auto_captures WHERE captured_at < ?', [cutoffIso]);

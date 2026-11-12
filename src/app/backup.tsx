@@ -9,6 +9,7 @@ import {
   Pressable,
   ScrollView,
   StyleSheet,
+  Switch,
   Text,
   TextInput,
   View,
@@ -25,14 +26,22 @@ import {
 import { BackupAuthError, BackupFormatError, BackupHeader } from '@/backup/format';
 import { Palette } from '@/constants/palette';
 import { settingsRepository } from '@/repositories/settings-repository';
+import { autoCaptureStorage } from '@/services/auto-camera';
 import { formatDateTime } from '@/utils/dates';
 
-type BackupMeta = { lastBackupAt: string | null };
+type BackupMeta = { lastBackupAt: string | null; includeAutoCaptures?: boolean };
 const META_KEY = 'backup';
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+}
 
 function describeProgress(stage: Parameters<Progress>[0], done: number, total: number): string {
   if (stage === 'preparing') return 'Securing with your password…';
   if (stage === 'photos') return `Photos ${done} of ${total}…`;
+  if (stage === 'auto-photos') return `Auto-camera photos ${done} of ${total}…`;
   return `Saving memories ${done} of ${total}…`;
 }
 
@@ -42,6 +51,8 @@ export default function BackupScreen() {
   const [confirm, setConfirm] = useState('');
   const [progress, setProgress] = useState<string | null>(null);
   const [lastFile, setLastFile] = useState<File | null>(null);
+  const [autoStorage, setAutoStorage] = useState<{ count: number; bytes: number }>({ count: 0, bytes: 0 });
+  const includeAuto = meta.includeAutoCaptures === true;
 
   const [restoreFile, setRestoreFile] = useState<File | null>(null);
   const [restoreInfo, setRestoreInfo] = useState<BackupHeader | null>(null);
@@ -50,6 +61,11 @@ export default function BackupScreen() {
   useFocusEffect(
     useCallback(() => {
       settingsRepository.get<BackupMeta>(META_KEY, { lastBackupAt: null }).then(setMeta, () => undefined);
+      try {
+        setAutoStorage(autoCaptureStorage());
+      } catch {
+        setAutoStorage({ count: 0, bytes: 0 });
+      }
     }, []),
   );
 
@@ -77,10 +93,11 @@ export default function BackupScreen() {
 
     setProgress('Starting…');
     try {
-      const { file, stats } = await createBackupFile(password, onProgress);
+      const { file, stats } = await createBackupFile(password, onProgress, { includeAutoCaptures: includeAuto });
       const now = new Date().toISOString();
-      await settingsRepository.set<BackupMeta>(META_KEY, { lastBackupAt: now });
-      setMeta({ lastBackupAt: now });
+      const nextMeta: BackupMeta = { lastBackupAt: now, includeAutoCaptures: includeAuto };
+      await settingsRepository.set<BackupMeta>(META_KEY, nextMeta);
+      setMeta(nextMeta);
       setLastFile(file);
       setPassword('');
       setConfirm('');
@@ -88,7 +105,9 @@ export default function BackupScreen() {
 
       Alert.alert(
         'Backup ready',
-        `${stats.memories} memories, ${stats.photos} photos, ${stats.dayNotes} day notes and ${stats.locationReadings} location readings, encrypted.` +
+        `${stats.memories} memories, ${stats.photos} photos, ${stats.dayNotes} day notes and ${stats.locationReadings} location readings` +
+          (includeAuto ? `, plus ${stats.autoPhotos} auto-camera photos` : '') +
+          ', encrypted.' +
           (stats.missingPhotos > 0 ? `\n\n${stats.missingPhotos} photo files were missing and were skipped.` : '') +
           '\n\nNext, choose “Drive” (Save to Drive) to store it in Google Drive.',
         [{ text: 'Choose where to save', onPress: () => share(file) }],
@@ -129,7 +148,8 @@ export default function BackupScreen() {
       setRestorePassword('');
       Alert.alert(
         'Restore complete',
-        `Added ${stats.memoriesAdded} memories (${stats.photosRestored} photos), ${stats.dayNotesAdded} day notes and ${stats.locationReadingsAdded} location readings.` +
+        `Added ${stats.memoriesAdded} memories (${stats.photosRestored} photos), ${stats.dayNotesAdded} day notes and ${stats.locationReadingsAdded} location readings` +
+          (stats.autoPhotosRestored > 0 ? `, plus ${stats.autoPhotosRestored} auto-camera photos.` : '.') +
           (stats.memoriesAlreadyPresent > 0
             ? `\n${stats.memoriesAlreadyPresent} memories were already on this phone and were left unchanged.`
             : '') +
@@ -171,9 +191,42 @@ export default function BackupScreen() {
             {meta.lastBackupAt ? `Last backup: ${formatDateTime(meta.lastBackupAt)}` : 'No backup made yet'}
           </Text>
           <Text style={styles.body}>
-            Includes every memory, its photos and evidence, your day notes and your location log (not auto-camera photos, which can be very large), encrypted with a
-            password you choose. Then save the file to Google Drive (or anywhere) from the share menu.
+            Includes every memory, its photos and evidence, your day notes and your location log, encrypted
+            with a password you choose. Then save the file to Google Drive (or anywhere) from the share menu.
           </Text>
+
+          <Pressable
+            style={({ pressed }) => [styles.reviewRow, pressed && styles.pressed]}
+            onPress={() => router.push({ pathname: '/photos', params: { day: 'today' } })}
+            disabled={busy}
+            accessibilityRole="button">
+            <View style={styles.flexFill}>
+              <Text style={styles.reviewTitle}>Review today’s photos first</Text>
+              <Text style={styles.reviewBody}>Delete anything you don’t want in the backup.</Text>
+            </View>
+            <Text style={styles.chevron}>›</Text>
+          </Pressable>
+
+          <View style={styles.toggleRow}>
+            <View style={styles.flexFill}>
+              <Text style={styles.reviewTitle}>Include auto-camera photos</Text>
+              <Text style={styles.reviewBody}>
+                {autoStorage.count === 0
+                  ? 'None on this phone right now.'
+                  : `${autoStorage.count} photos · ${formatBytes(autoStorage.bytes)} — makes the backup bigger.`}
+              </Text>
+            </View>
+            <Switch
+              value={includeAuto}
+              onValueChange={(value) => {
+                const next = { ...meta, includeAutoCaptures: value };
+                setMeta(next);
+                settingsRepository.set<BackupMeta>(META_KEY, next).catch(() => undefined);
+              }}
+              disabled={busy}
+              accessibilityLabel="Include auto-camera photos"
+            />
+          </View>
 
           <TextInput
             style={styles.input}
@@ -326,4 +379,26 @@ const styles = StyleSheet.create({
   secondaryText: { fontSize: 14, fontWeight: '700', color: Palette.text },
   link: { marginTop: 14, fontSize: 14, fontWeight: '700', color: Palette.textSecondary, textAlign: 'center' },
   disabled: { opacity: 0.5 },
+  pressed: { opacity: 0.7 },
+  flexFill: { flex: 1 },
+  reviewRow: {
+    marginTop: 16,
+    paddingVertical: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderTopWidth: 1,
+    borderTopColor: Palette.border,
+  },
+  toggleRow: {
+    paddingVertical: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    borderTopWidth: 1,
+    borderBottomWidth: 1,
+    borderColor: Palette.border,
+  },
+  reviewTitle: { fontSize: 15, fontWeight: '700', color: Palette.text },
+  reviewBody: { marginTop: 2, fontSize: 13, lineHeight: 18, color: Palette.textMuted },
+  chevron: { fontSize: 24, color: Palette.textFaint },
 });

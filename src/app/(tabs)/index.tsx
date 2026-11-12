@@ -154,6 +154,15 @@ export default function HomeScreen() {
           >
             <Text style={styles.reviewButtonText}>▶ TODAY’S REVIEW</Text>
           </Pressable>
+
+          <Pressable
+            style={styles.reviewButton}
+            onPress={() => router.push("/photos")}
+            accessibilityRole="button"
+            accessibilityHint="Shows photos from the last 3 hours so you can delete any"
+          >
+            <Text style={styles.reviewButtonText}>🖼 RECENT PHOTOS</Text>
+          </Pressable>
         </View>
       }
       renderSectionHeader={({ section }) => (

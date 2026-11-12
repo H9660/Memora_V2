@@ -1,5 +1,11 @@
 import { MemoryEdit, MemoryEvent, MemoryEvidence } from '@/types/memory';
 
+/** Half-open time window [start, end) as ISO 8601 strings. */
+export interface TimeRange {
+  start: string;
+  end: string;
+}
+
 /** Persistence contract for memories. The SQLite implementation is the only one in production. */
 export interface MemoryRepository {
   /** Inserts a new memory and its evidence atomically. Fails if the id already exists. */
@@ -13,9 +19,14 @@ export interface MemoryRepository {
   getBetween(startIso: string, endIso: string): Promise<MemoryEvent[]>;
   /** Evidence for one memory, oldest observation first. */
   getEvidence(memoryId: string): Promise<MemoryEvidence[]>;
-  /** Case-insensitive match on title, note, place and note/location evidence; newest first. */
-  search(query: string): Promise<MemoryEvent[]>;
+  /**
+   * Case-insensitive match on title, note, place and note/location evidence; newest first.
+   * With a range, only memories captured in it. An empty query with a range lists the whole range.
+   */
+  search(query: string, range?: TimeRange): Promise<MemoryEvent[]>;
   count(): Promise<number>;
+  /** Removes one piece of evidence (e.g. a photo) from its memory. */
+  deleteEvidence(evidenceId: string): Promise<void>;
   /** Removes the memory and (via cascade) its evidence. */
   delete(id: string): Promise<void>;
   deleteAll(): Promise<void>;

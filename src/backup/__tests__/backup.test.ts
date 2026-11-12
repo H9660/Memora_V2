@@ -74,7 +74,7 @@ async function populatedSource() {
 describe('backup and restore', () => {
   it('round-trips memories, photos and the location log', async () => {
     const { bytes, stats, withPhoto, noteOnly, photoBytes } = await populatedSource();
-    expect(stats).toEqual({ memories: 2, photos: 1, missingPhotos: 0, locationReadings: 1, dayNotes: 0 });
+    expect(stats).toEqual({ memories: 2, photos: 1, missingPhotos: 0, locationReadings: 1, dayNotes: 0, autoPhotos: 0 });
 
     const targetPhotos = fakePhotos();
     const target = await device(targetPhotos);
@@ -155,6 +155,59 @@ describe('backup and restore', () => {
     await expect(
       BackupReader.readHeader(MemoryBytes.from(new TextEncoder().encode('just a text file'))),
     ).rejects.toBeInstanceOf(BackupFormatError);
+  });
+
+  it('includes auto-camera photos only when asked, and restores them under their own names', async () => {
+    const autoFiles = new Map<string, Uint8Array>([
+      ['file:///auto/1731384000000-back.jpg', new Uint8Array([1, 2, 3])],
+      ['file:///auto/1731384060000-back.jpg', new Uint8Array([4, 5])],
+    ]);
+    const autoCaptures = {
+      listAll: async () =>
+        [...autoFiles.keys()].map((uri) => ({ id: uri.split('/').pop()!, capturedAt: '2026-11-12T04:00:00.000Z', uri })),
+      read: async (uri: string) => autoFiles.get(uri) ?? null,
+      restore: jest.fn(async () => true),
+      remove: jest.fn(),
+    };
+
+    const db = new NodeSQLiteDatabase();
+    await migrate(db.asExpo());
+    const open = async () => db.asExpo();
+    const source = createBackupService({
+      memories: new SQLiteMemoryRepository(open),
+      locationLog: new LocationLogRepository(open),
+      autoCaptures,
+      photos: fakePhotos().store,
+      random,
+      iterations: 1000,
+    });
+
+    const without = new MemoryBytes();
+    expect((await source.exportTo(without, PASSWORD)).autoPhotos).toBe(0);
+
+    const withAuto = new MemoryBytes();
+    expect((await source.exportTo(withAuto, PASSWORD, undefined, { includeAutoCaptures: true })).autoPhotos).toBe(2);
+
+    const targetDb = new NodeSQLiteDatabase();
+    await migrate(targetDb.asExpo());
+    const targetOpen = async () => targetDb.asExpo();
+    const restore = jest.fn(async (_id: string, _bytes: Uint8Array) => true);
+    const target = createBackupService({
+      memories: new SQLiteMemoryRepository(targetOpen),
+      locationLog: new LocationLogRepository(targetOpen),
+      autoCaptures: { ...autoCaptures, restore },
+      photos: fakePhotos().store,
+      random,
+      iterations: 1000,
+    });
+    const result = await target.importFrom(MemoryBytes.from(withAuto.bytes()), PASSWORD);
+    expect(result.autoPhotosRestored).toBe(2);
+    expect(restore).toHaveBeenCalledWith('1731384000000-back.jpg', new Uint8Array([1, 2, 3]));
+
+    // A backup without them restores nothing extra.
+    restore.mockClear();
+    expect((await target.importFrom(MemoryBytes.from(without.bytes()), PASSWORD)).autoPhotosRestored).toBe(0);
+    expect(restore).not.toHaveBeenCalled();
   });
 
   it('refuses short passwords', async () => {

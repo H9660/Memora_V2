@@ -74,6 +74,18 @@ Principles enforced in code:
 Both need the development build (not Expo Go). Background photo capture is not offered: Android blocks
 background camera access.
 
+### Reviewing and deleting photos
+
+- **Photos screen** (`src/app/photos.tsx`, logic in `src/review/photo-review.ts` and
+  `src/services/photo-review-service.ts`): every photo (memory photos and auto-camera photos) from the
+  last 1/3/6/12 hours or a whole day. Tap to view full size or delete; long-press or "Select" to delete
+  several. Removing the only photo of a memory with no note removes that memory, and the user is warned first.
+- **End-of-day review**: an optional evening notification (Reminders screen) opens today's photos. From
+  there "Done — back up now" goes to Backup. Backups can optionally include auto-camera photos, so
+  anything deleted during the review never reaches Drive.
+- **Search time filter** (`src/utils/search-filters.ts`): Today / Yesterday / 7 days / 30 days / a custom
+  date range, plus morning / afternoon / evening / night. A filter with no text lists everything in range.
+
 ### Data model
 
 | Table             | Columns                                                                                 |
