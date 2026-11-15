@@ -8,10 +8,12 @@ import * as Sharing from 'expo-sharing';
 
 import { dayNoteRepository } from '@/repositories/day-note-repository';
 import { locationLogRepository } from '@/repositories/location-log-repository';
+import { autoCaptureRepository } from '@/repositories/auto-capture-repository';
 import { memoryRepository } from '@/repositories/sqlite-memory-repository';
+import { removeAutoCaptureFile, restoreAutoCapture, syncAutoCaptures } from '@/services/auto-camera';
 import { deletePhoto, readPhotoBytes, savePhotoBytes } from '@/services/photos';
 
-import { BackupStats, createBackupService, Progress, RestoreStats } from './backup-service';
+import { BackupStats, createBackupService, ExportOptions, Progress, RestoreStats } from './backup-service';
 import { BackupHeader, BackupReader, ByteReader, ByteWriter } from './format';
 
 export const BACKUP_EXTENSION = 'memora';
@@ -21,6 +23,12 @@ const service = createBackupService({
   memories: memoryRepository,
   locationLog: locationLogRepository,
   dayNotes: dayNoteRepository,
+  autoCaptures: {
+    listAll: () => autoCaptureRepository.listAll(),
+    read: readPhotoBytes,
+    restore: restoreAutoCapture,
+    remove: removeAutoCaptureFile,
+  },
   photos: { read: readPhotoBytes, save: savePhotoBytes, remove: deletePhoto },
   random: (length) => Crypto.getRandomBytes(length),
 });
@@ -102,7 +110,11 @@ function openPicked(file: File): { reader: ByteReader; close: () => void } {
 export async function createBackupFile(
   password: string,
   onProgress?: Progress,
+  options: ExportOptions = {},
 ): Promise<{ file: File; stats: BackupStats }> {
+  // Make sure the list matches the photos actually on the phone (including ones just deleted).
+  if (options.includeAutoCaptures) await syncAutoCaptures().catch(() => undefined);
+
   const file = new File(backupDirectory(), fileName(new Date()));
   if (file.exists) file.delete();
   file.create();
@@ -110,7 +122,7 @@ export async function createBackupFile(
   const handle = file.open(FileMode.WriteOnly);
   const writer: ByteWriter = { write: (bytes) => handle.writeBytes(bytes) };
   try {
-    const stats = await service.exportTo(writer, password, onProgress);
+    const stats = await service.exportTo(writer, password, onProgress, options);
     handle.close();
     clearOldBackups(file);
     return { file, stats };
@@ -159,7 +171,9 @@ export async function restoreBackupFile(
 ): Promise<RestoreStats> {
   const opened = openPicked(file);
   try {
-    return await service.importFrom(opened.reader, password, onProgress);
+    const stats = await service.importFrom(opened.reader, password, onProgress);
+    if (stats.autoPhotosRestored > 0) await syncAutoCaptures().catch(() => undefined);
+    return stats;
   } finally {
     opened.close();
   }

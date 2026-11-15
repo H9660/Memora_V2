@@ -8,7 +8,7 @@ import * as ImagePicker from 'expo-image-picker';
 import * as Notifications from 'expo-notifications';
 
 import { AutoCameraNative, AutoCameraNativeStatus, CameraLens } from '../../modules/auto-camera';
-import { autoCaptureRepository, parseCaptureFileName } from '@/repositories/auto-capture-repository';
+import { AutoCapture, autoCaptureRepository, parseCaptureFileName } from '@/repositories/auto-capture-repository';
 import { settingsRepository } from '@/repositories/settings-repository';
 
 export type { CameraLens } from '../../modules/auto-camera';
@@ -143,6 +143,45 @@ export function autoCaptureStorage(): { count: number; bytes: number } {
     }
   }
   return { count, bytes };
+}
+
+/** Deletes specific auto-camera photos (files first, so a later sync can't bring them back). */
+export async function deleteAutoCaptures(captures: Pick<AutoCapture, 'id' | 'uri'>[]): Promise<void> {
+  const ownDirectory = captureDirectory().uri;
+  for (const capture of captures) {
+    if (!capture.uri.startsWith(ownDirectory)) continue;
+    try {
+      const file = new File(capture.uri);
+      if (file.exists) file.delete();
+    } catch {
+      console.warn('Could not delete an auto-camera photo file.');
+    }
+  }
+  await autoCaptureRepository.delete(captures.map((capture) => capture.id));
+}
+
+/**
+ * Writes a photo from a backup back under its original file name. Returns false
+ * if the name isn't a valid capture name or that photo is already here.
+ */
+export async function restoreAutoCapture(id: string, bytes: Uint8Array): Promise<boolean> {
+  const directory = captureDirectory();
+  directory.create({ intermediates: true, idempotent: true });
+  const file = new File(directory, id);
+  if (!parseCaptureFileName(id, file.uri) || file.exists) return false;
+  file.create();
+  await file.write(bytes);
+  return true;
+}
+
+/** Removes a restored photo's file (used to roll back a failed restore). */
+export function removeAutoCaptureFile(id: string): void {
+  try {
+    const file = new File(captureDirectory(), id);
+    if (parseCaptureFileName(id, file.uri) && file.exists) file.delete();
+  } catch {
+    // best-effort
+  }
 }
 
 export async function deleteAllAutoCaptures(): Promise<void> {

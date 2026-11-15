@@ -16,8 +16,12 @@ import {
 
 import { Palette } from '@/constants/palette';
 import {
+  DayReviewReminderSettings,
+  disableDayReviewReminder,
   disableReminders,
+  enableDayReviewReminder,
   enableReminders,
+  getDayReviewReminder,
   getReminderSettings,
   ReminderSettings,
   saveTimesWhileOff,
@@ -58,11 +62,51 @@ export default function RemindersScreen() {
   const [windowStart, setWindowStart] = useState<ReminderTime>({ hour: 9, minute: 0 });
   const [windowEnd, setWindowEnd] = useState<ReminderTime>({ hour: 21, minute: 0 });
 
+  const [dayReview, setDayReview] = useState<DayReviewReminderSettings | null>(null);
+
   useFocusEffect(
     useCallback(() => {
       getReminderSettings().then(setSettings, () => setSettings({ enabled: false, times: [] }));
+      getDayReviewReminder().then(setDayReview, () => setDayReview(null));
     }, []),
   );
+
+  async function saveDayReview(enabled: boolean, time: ReminderTime) {
+    setBusy(true);
+    try {
+      if (!enabled) {
+        await disableDayReviewReminder(time);
+        setDayReview({ enabled: false, time });
+        return;
+      }
+      const result = await enableDayReviewReminder(time);
+      if (result.status === 'enabled') {
+        setDayReview({ enabled: true, time });
+      } else {
+        Alert.alert(
+          'Notifications are off for Memora',
+          'Allow notifications in system settings to get the end-of-day review.',
+          result.canAskAgain
+            ? [{ text: 'OK' }]
+            : [
+                { text: 'Not now', style: 'cancel' },
+                { text: 'Open settings', onPress: () => Linking.openSettings() },
+              ],
+        );
+      }
+    } catch (error) {
+      console.warn('Updating day review reminder failed:', error instanceof Error ? error.message : error);
+      Alert.alert('Couldn’t update the reminder', 'Please try again.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function changeDayReviewTime() {
+    if (!dayReview || busy) return;
+    const time = await pickTime(dayReview.time);
+    if (time && !sameTime(time, dayReview.time)) saveDayReview(dayReview.enabled, time);
+  }
 
   /** Persists times (and reschedules if reminders are on). */
   async function save(enabled: boolean, requested: ReminderTime[]) {
@@ -282,6 +326,40 @@ export default function RemindersScreen() {
         </Pressable>
       </View>
 
+      <Text style={styles.sectionTitle}>END OF THE DAY</Text>
+      <View style={styles.card}>
+        <View style={styles.toggleRow}>
+          <View style={styles.flex}>
+            <Text style={styles.cardTitle}>Review today’s photos</Text>
+            <Text style={[styles.status, dayReview?.enabled && styles.statusOn]}>
+              {dayReview === null ? '…' : dayReview.enabled ? `On · ${formatReminderTime(dayReview.time)}` : 'Off'}
+            </Text>
+          </View>
+          {dayReview !== null && (
+            <Switch
+              value={dayReview.enabled}
+              onValueChange={(value) => saveDayReview(value, dayReview.time)}
+              disabled={busy}
+              accessibilityLabel="End-of-day photo review"
+            />
+          )}
+        </View>
+        <Text style={styles.body}>
+          One notification each evening that opens the whole day’s photos, so you can delete anything
+          before you back up to Drive.
+        </Text>
+        <Pressable
+          style={({ pressed }) => [styles.timeField, styles.dayReviewTime, pressed && styles.pressed]}
+          onPress={changeDayReviewTime}
+          disabled={busy || dayReview === null}
+          accessibilityRole="button"
+          accessibilityLabel="Change end-of-day review time">
+          <Text style={styles.timeFieldText}>
+            {dayReview ? `At ${formatReminderTime(dayReview.time)} — tap to change` : '…'}
+          </Text>
+        </Pressable>
+      </View>
+
       <Text style={styles.footnote}>
         Tapping a reminder opens “Remember This”. Nothing is captured unless you save it. Reminders are
         scheduled on this device; Android may deliver them a few minutes late to save battery.
@@ -344,6 +422,7 @@ const styles = StyleSheet.create({
     borderColor: Palette.border,
   },
   timeFieldText: { fontSize: 15, fontWeight: '600', color: Palette.text },
+  dayReviewTime: { marginTop: 14 },
   body: { marginTop: 14, fontSize: 13, lineHeight: 20, color: Palette.textMuted },
   hint: { marginTop: 10, fontSize: 12, color: Palette.textFaint },
   secondaryButton: {

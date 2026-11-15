@@ -1,7 +1,7 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
 
 import { getDatabase } from '@/database/database';
-import { MemoryRepository, MemoryRepositoryError } from '@/repositories/memory-repository';
+import { MemoryRepository, MemoryRepositoryError, TimeRange } from '@/repositories/memory-repository';
 import { isEvidenceType, MemoryEdit, MemoryEvent, MemoryEvidence } from '@/types/memory';
 import { UNTITLED_MEMORY } from '@/utils/memory-factory';
 import { isIsoTimestamp, validateEdit, validateMemory } from '@/utils/validation';
@@ -234,16 +234,18 @@ export class SQLiteMemoryRepository implements MemoryRepository {
     return this.run('load evidence', (db) => this.loadEvidence(db, [memoryId]));
   }
 
-  search(query: string): Promise<MemoryEvent[]> {
+  search(query: string, range?: TimeRange): Promise<MemoryEvent[]> {
     const trimmed = query.trim();
-    if (trimmed.length === 0) return Promise.resolve([]);
+    if (trimmed.length === 0 && !range) return Promise.resolve([]);
 
     return this.run('search memories', async (db) => {
-      const pattern = `%${escapeLike(trimmed)}%`;
-      // LIKE is case-insensitive for ASCII in SQLite.
-      const rows = await db.getAllAsync<MemoryRow>(
-        `SELECT ${MEMORY_COLUMNS} FROM memories m
-         WHERE m.title LIKE ?1 ESCAPE '\\'
+      const conditions: string[] = [];
+      const params: string[] = [];
+
+      if (trimmed.length > 0) {
+        params.push(`%${escapeLike(trimmed)}%`);
+        // LIKE is case-insensitive for ASCII in SQLite.
+        conditions.push(`(m.title LIKE ?1 ESCAPE '\\'
             OR m.note LIKE ?1 ESCAPE '\\'
             OR m.place_name LIKE ?1 ESCAPE '\\'
             OR EXISTS (
@@ -251,9 +253,19 @@ export class SQLiteMemoryRepository implements MemoryRepository {
               WHERE e.memory_id = m.id
                 AND e.type IN ${SEARCHABLE_EVIDENCE}
                 AND e.data_json LIKE ?1 ESCAPE '\\'
-            )
+            ))`);
+      }
+      if (range) {
+        const startIndex = params.push(range.start);
+        const endIndex = params.push(range.end);
+        conditions.push(`m.captured_at >= ?${startIndex} AND m.captured_at < ?${endIndex}`);
+      }
+
+      const rows = await db.getAllAsync<MemoryRow>(
+        `SELECT ${MEMORY_COLUMNS} FROM memories m
+         WHERE ${conditions.join(' AND ')}
          ORDER BY m.captured_at DESC, m.id DESC`,
-        [pattern],
+        params,
       );
       return this.withEvidence(db, rows);
     });
@@ -263,6 +275,12 @@ export class SQLiteMemoryRepository implements MemoryRepository {
     return this.run('count memories', async (db) => {
       const row = await db.getFirstAsync<{ total: number }>('SELECT COUNT(*) AS total FROM memories');
       return row?.total ?? 0;
+    });
+  }
+
+  deleteEvidence(evidenceId: string): Promise<void> {
+    return this.run('delete the evidence', async (db) => {
+      await db.runAsync('DELETE FROM memory_evidence WHERE id = ?', [evidenceId]);
     });
   }
 

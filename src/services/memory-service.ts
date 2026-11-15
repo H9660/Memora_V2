@@ -4,7 +4,7 @@
  * and keeps files (photos) and database rows consistent.
  */
 import { memoryRepository } from '@/repositories';
-import { MemoryRepository } from '@/repositories/memory-repository';
+import { MemoryRepository, TimeRange } from '@/repositories/memory-repository';
 import type { LocationData } from '@/services/location';
 import {
   deleteAllPhotos,
@@ -68,7 +68,8 @@ export function createMemoryService(repository: MemoryRepository) {
 
     list: () => repository.getAll(),
     get: (id: string) => repository.getById(id),
-    search: (query: string) => repository.search(query),
+    search: (query: string, range?: TimeRange) => repository.search(query, range),
+    listBetween: (startIso: string, endIso: string) => repository.getBetween(startIso, endIso),
     count: () => repository.count(),
 
     /** Edits title/note. The USER_NOTE evidence still holds the note as first captured. */
@@ -80,6 +81,27 @@ export function createMemoryService(repository: MemoryRepository) {
       await repository.delete(id);
       // Rows are gone; now clean up files. Failures here only leave an unreferenced file.
       if (memory) photoUrisOf(memory).forEach((uri) => deletePhoto(uri));
+    },
+
+    /**
+     * Removes one photo from a memory. If that leaves the memory with no note
+     * and no other photo, the whole memory is removed (an empty memory means nothing).
+     */
+    async removePhoto(memoryId: string, evidenceId: string): Promise<'photo-removed' | 'memory-removed' | 'not-found'> {
+      const memory = await repository.getById(memoryId);
+      const photo = memory?.evidence.find((evidence) => evidence.id === evidenceId && evidence.type === 'PHOTO');
+      if (!memory || !photo) return 'not-found';
+
+      const otherPhotos = memory.evidence.filter((evidence) => evidence.type === 'PHOTO' && evidence.id !== evidenceId);
+      if (otherPhotos.length === 0 && memory.note.trim().length === 0) {
+        await repository.delete(memoryId);
+        photoUrisOf(memory).forEach((uri) => deletePhoto(uri));
+        return 'memory-removed';
+      }
+
+      await repository.deleteEvidence(evidenceId);
+      if (typeof photo.data.uri === 'string') deletePhoto(photo.data.uri);
+      return 'photo-removed';
     },
 
     async removeAll(): Promise<void> {

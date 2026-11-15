@@ -103,7 +103,8 @@ export default function PrivacyScreen() {
         <Text style={styles.cardTitle}>Where your memories live</Text>
         <Text style={styles.body}>
           Memories, notes, photos and locations are stored only on this device. Memora has no
-          account, no cloud sync and no analytics, and it never uploads your data.
+          account, no cloud sync and no analytics. Nothing leaves the phone unless you make a backup
+          and choose where to save it.
         </Text>
         <Text style={styles.body}>
           Your notes are kept exactly as you wrote them. Sensor observations such as location are
@@ -187,6 +188,17 @@ export default function PrivacyScreen() {
       <Text style={styles.sectionTitle}>YOUR DATA</Text>
 
       <View style={styles.card}>
+        <Pressable
+          onPress={() => router.push('/photos')}
+          accessibilityRole="button"
+          style={({ pressed }) => [styles.linkRow, pressed && styles.pressed]}>
+          <View style={styles.flex}>
+            <Text style={styles.cardTitle}>Review & delete photos</Text>
+            <Text style={styles.status}>Last few hours or a whole day, including auto-camera photos</Text>
+          </View>
+          <Text style={styles.chevron}>›</Text>
+        </Pressable>
+        <View style={styles.divider} />
         <Pressable
           onPress={() => router.push('/backup')}
           accessibilityRole="button"

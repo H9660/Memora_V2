@@ -306,6 +306,30 @@ describe('SQLiteMemoryRepository', () => {
       expect(await repository.search('_')).toEqual([]);
       expect(await repository.search('   ')).toEqual([]);
     });
+
+    it('limits matches to a time range, and lists the whole range for an empty query', async () => {
+      const { repository } = await setup();
+      const old = createMemory({ note: 'Coffee with Sam', capturedAt: hoursAgo(30) });
+      const recent = createMemory({ note: 'Coffee alone', capturedAt: hoursAgo(2) });
+      const other = createMemory({ note: 'Groceries', capturedAt: hoursAgo(1) });
+      for (const memory of [old, recent, other]) await repository.create(memory);
+
+      const lastDay = { start: hoursAgo(24), end: hoursAgo(0) };
+      expect((await repository.search('coffee', lastDay)).map((m) => m.id)).toEqual([recent.id]);
+      expect((await repository.search('', lastDay)).map((m) => m.id)).toEqual([other.id, recent.id]);
+      expect((await repository.search('coffee')).map((m) => m.id)).toEqual([recent.id, old.id]);
+    });
+  });
+
+  it('deletes a single piece of evidence and keeps the memory', async () => {
+    const { repository } = await setup();
+    const memory = memoryWithLocation('With a place', hoursAgo(1));
+    await repository.create(memory);
+    const location = memory.evidence.find((e) => e.type === 'LOCATION')!;
+
+    await repository.deleteEvidence(location.id);
+    const loaded = await repository.getById(memory.id);
+    expect(loaded?.evidence.map((e) => e.type)).toEqual(['USER_NOTE']);
   });
 
   it('survives corrupted evidence rows', async () => {

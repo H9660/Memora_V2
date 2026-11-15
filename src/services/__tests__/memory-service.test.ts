@@ -84,4 +84,34 @@ describe('memory service', () => {
     expect(await repository.getById(memory.id)).toBeNull();
     expect(deletePhoto).toHaveBeenCalledWith('file:///app/memory-photos/stored.jpg');
   });
+
+  describe('removePhoto', () => {
+    it('keeps a memory that still has a note', async () => {
+      const { service, repository } = await setup();
+      const memory = await service.capture({ note: 'Lunch', capturedAt: CAPTURED_AT, location: null, photo: pendingPhoto });
+      const photo = memory.evidence.find((e) => e.type === 'PHOTO')!;
+
+      expect(await service.removePhoto(memory.id, photo.id)).toBe('photo-removed');
+      const saved = await repository.getById(memory.id);
+      expect(saved?.note).toBe('Lunch');
+      expect(saved?.evidence.some((e) => e.type === 'PHOTO')).toBe(false);
+      expect(deletePhoto).toHaveBeenCalledWith('file:///app/memory-photos/stored.jpg');
+    });
+
+    it('removes a photo-only memory entirely', async () => {
+      const { service, repository } = await setup();
+      const memory = await service.capture({ note: '', capturedAt: CAPTURED_AT, location: null, photo: pendingPhoto });
+      const photo = memory.evidence.find((e) => e.type === 'PHOTO')!;
+
+      expect(await service.removePhoto(memory.id, photo.id)).toBe('memory-removed');
+      expect(await repository.getById(memory.id)).toBeNull();
+    });
+
+    it('reports a missing memory or photo', async () => {
+      const { service } = await setup();
+      const memory = await service.capture({ note: 'x', capturedAt: CAPTURED_AT, location: null, photo: null });
+      expect(await service.removePhoto(memory.id, memory.evidence[0].id)).toBe('not-found');
+      expect(await service.removePhoto('nope', 'nope')).toBe('not-found');
+    });
+  });
 });

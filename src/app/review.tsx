@@ -126,6 +126,12 @@ export default function DailyReviewScreen() {
                   accessibilityRole="button">
                   <Text style={styles.playAllText}>▶  PLAY FULL SCREEN</Text>
                 </Pressable>
+                <Pressable
+                  style={styles.manageButton}
+                  onPress={() => router.push({ pathname: '/photos', params: { day: key } })}
+                  accessibilityRole="button">
+                  <Text style={styles.manageText}>SEE ALL PHOTOS · DELETE</Text>
+                </Pressable>
               </View>
             ) : (
               <View style={styles.card}>
@@ -275,6 +281,16 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   playAllText: { color: Palette.surface, fontSize: 14, fontWeight: '700' },
+  manageButton: {
+    marginTop: 10,
+    paddingVertical: 13,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: Palette.border,
+    backgroundColor: Palette.surface,
+    alignItems: 'center',
+  },
+  manageText: { color: Palette.text, fontSize: 14, fontWeight: '700' },
   sectionTitle: { marginTop: 26, marginBottom: 2, fontSize: 13, fontWeight: '700', color: Palette.sectionLabel, letterSpacing: 1 },
   card: { marginTop: 12, padding: 18, borderRadius: 16, backgroundColor: Palette.surface },
   cardTitle: { fontSize: 15, fontWeight: '700', color: Palette.text },

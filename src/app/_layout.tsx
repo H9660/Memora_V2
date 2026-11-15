@@ -10,7 +10,7 @@ import { getDatabase } from '@/database/database';
 import { Palette } from '@/constants/palette';
 // Side effect: defines the background location task so the OS can run it while the app is closed.
 import '@/services/background-location';
-import { isReminderResponse } from '@/services/reminders';
+import { isDayReviewResponse, isReminderResponse } from '@/services/reminders';
 
 SplashScreen.preventAutoHideAsync();
 
@@ -46,14 +46,18 @@ function useReminderNavigation(ready: boolean) {
   useEffect(() => {
     if (!ready) return;
 
-    if (isReminderResponse(Notifications.getLastNotificationResponse())) {
+    const open = (response: Notifications.NotificationResponse | null) => {
+      if (isReminderResponse(response)) router.push('/capture');
+      else if (isDayReviewResponse(response)) router.push({ pathname: '/photos', params: { day: 'today' } });
+      else return false;
+      return true;
+    };
+
+    if (open(Notifications.getLastNotificationResponse())) {
       Notifications.clearLastNotificationResponse();
-      router.push('/capture');
     }
 
-    const subscription = Notifications.addNotificationResponseReceivedListener((response) => {
-      if (isReminderResponse(response)) router.push('/capture');
-    });
+    const subscription = Notifications.addNotificationResponseReceivedListener(open);
     return () => subscription.remove();
   }, [ready]);
 }
@@ -82,6 +86,7 @@ export default function RootLayout() {
           <Stack.Screen name="backup" />
           <Stack.Screen name="review" />
           <Stack.Screen name="auto-camera" />
+          <Stack.Screen name="photos" />
         </Stack>
       ) : (
         <View style={styles.gate}>

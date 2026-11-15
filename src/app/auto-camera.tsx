@@ -332,6 +332,11 @@ export default function AutoCameraScreen() {
                 {storage.count} photo{storage.count === 1 ? '' : 's'} stored · {formatBytes(storage.bytes)}
               </Text>
               {storage.count > 0 && (
+                <Pressable onPress={() => router.push('/photos')} accessibilityRole="button" hitSlop={8}>
+                  <Text style={styles.viewLink}>See recent photos and delete some</Text>
+                </Pressable>
+              )}
+              {storage.count > 0 && (
                 <Pressable onPress={confirmDeleteAll} accessibilityRole="button" hitSlop={8}>
                   <Text style={styles.deleteLink}>Delete all auto-camera photos</Text>
                 </Pressable>
@@ -355,7 +360,7 @@ export default function AutoCameraScreen() {
 
         <Text style={styles.footnote}>
           Photos stay on this device in Memora’s private storage, are shown in your Daily Review with the time and the
-          place from your location log, and aren’t included in backups (they can be very large).
+          place from your location log, and are only included in backups if you choose (they can be very large).
         </Text>
       </ScrollView>
     </KeyboardAvoidingView>
@@ -427,6 +432,7 @@ const styles = StyleSheet.create({
   setText: { fontSize: 14, fontWeight: '700', color: Palette.surface },
   disabled: { opacity: 0.5 },
   deleteLink: { marginTop: 12, fontSize: 14, fontWeight: '700', color: Palette.danger },
+  viewLink: { marginTop: 12, fontSize: 14, fontWeight: '700', color: Palette.text },
   secondaryButton: {
     marginTop: 14,
     paddingVertical: 13,

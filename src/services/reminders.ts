@@ -103,6 +103,77 @@ export function isReminderResponse(response: Notifications.NotificationResponse 
   return response?.notification.request.content.data?.kind === REMINDER_KIND;
 }
 
+// ---- End-of-day review: one evening prompt to look through the day's photos before backing up.
+
+export interface DayReviewReminderSettings {
+  enabled: boolean;
+  time: ReminderTime;
+}
+
+const DAY_REVIEW_KEY = 'dayReviewReminder';
+const DAY_REVIEW_KIND = 'memora-day-review';
+const DAY_REVIEW_DEFAULT: DayReviewReminderSettings = { enabled: false, time: { hour: 21, minute: 30 } };
+
+export function getDayReviewReminder(): Promise<DayReviewReminderSettings> {
+  return settingsRepository.get(DAY_REVIEW_KEY, DAY_REVIEW_DEFAULT);
+}
+
+async function cancelDayReviewNotifications(): Promise<void> {
+  const scheduled = await Notifications.getAllScheduledNotificationsAsync();
+  await Promise.all(
+    scheduled
+      .filter((request) => request.content.data?.kind === DAY_REVIEW_KIND)
+      .map((request) => Notifications.cancelScheduledNotificationAsync(request.identifier)),
+  );
+}
+
+export async function enableDayReviewReminder(time: ReminderTime): Promise<EnableResult> {
+  let permission = await Notifications.getPermissionsAsync();
+  if (!permission.granted && permission.canAskAgain) {
+    permission = await Notifications.requestPermissionsAsync();
+  }
+  if (!permission.granted) {
+    return { status: 'denied', canAskAgain: permission.canAskAgain };
+  }
+
+  if (Platform.OS === 'android') {
+    await Notifications.setNotificationChannelAsync(CHANNEL_ID, {
+      name: 'Memory reminders',
+      description: 'Daily prompts to capture a memory',
+      // eslint-disable-next-line import/namespace
+      importance: Notifications.AndroidImportance.DEFAULT,
+    });
+  }
+
+  await cancelDayReviewNotifications();
+  await Notifications.scheduleNotificationAsync({
+    content: {
+      title: 'Review your day',
+      body: 'Look through today’s photos and delete anything you don’t want kept or backed up.',
+      data: { kind: DAY_REVIEW_KIND },
+    },
+    trigger: {
+      type: Notifications.SchedulableTriggerInputTypes.DAILY,
+      hour: time.hour,
+      minute: time.minute,
+      channelId: CHANNEL_ID,
+    },
+  });
+  await settingsRepository.set<DayReviewReminderSettings>(DAY_REVIEW_KEY, { enabled: true, time });
+  return { status: 'enabled' };
+}
+
+export async function disableDayReviewReminder(time?: ReminderTime): Promise<void> {
+  await cancelDayReviewNotifications();
+  const current = await getDayReviewReminder();
+  await settingsRepository.set<DayReviewReminderSettings>(DAY_REVIEW_KEY, { enabled: false, time: time ?? current.time });
+}
+
+/** True if the user tapped the end-of-day review notification (which opens today's photos). */
+export function isDayReviewResponse(response: Notifications.NotificationResponse | null): boolean {
+  return response?.notification.request.content.data?.kind === DAY_REVIEW_KIND;
+}
+
 /** Saves chosen times without scheduling anything (used while reminders are off). */
 export async function saveTimesWhileOff(times: ReminderTime[]): Promise<void> {
   await settingsRepository.set<ReminderSettings>(SETTINGS_KEY, {

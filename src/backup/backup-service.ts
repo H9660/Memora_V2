@@ -36,6 +36,15 @@ export interface LocationLogStore {
   importMissing(observations: LocationObservation[]): Promise<number>;
 }
 
+/** Auto-camera photos: optional in a backup because they can be very large. */
+export interface AutoCaptureStore {
+  listAll(): Promise<{ id: string; capturedAt: string; uri: string }[]>;
+  read(uri: string): Promise<Uint8Array | null>;
+  /** Writes a photo under its original id; false if one with that id is already present (or the id is invalid). */
+  restore(id: string, bytes: Uint8Array): Promise<boolean>;
+  remove(id: string): void;
+}
+
 export interface DayNoteStore {
   listAll(): Promise<DayNote[]>;
   importMissing(notes: DayNote[]): Promise<number>;
@@ -54,11 +63,14 @@ interface BackupManifest {
   /** Optional so backups made before day notes existed still restore. */
   dayNotes?: DayNote[];
   photos: ManifestPhoto[];
+  /** Present when the user chose to include auto-camera photos; one record each, after the memory photos. */
+  autoCaptures?: { id: string; capturedAt: string }[];
 }
 
 interface EndMarker {
   end: true;
   photos: number;
+  autoPhotos?: number;
 }
 
 export interface BackupStats {
@@ -67,6 +79,11 @@ export interface BackupStats {
   missingPhotos: number;
   locationReadings: number;
   dayNotes: number;
+  autoPhotos: number;
+}
+
+export interface ExportOptions {
+  includeAutoCaptures?: boolean;
 }
 
 export interface RestoreStats {
@@ -76,10 +93,15 @@ export interface RestoreStats {
   photosRestored: number;
   locationReadingsAdded: number;
   dayNotesAdded: number;
+  autoPhotosRestored: number;
   backupCreatedAt: string;
 }
 
-export type Progress = (stage: 'preparing' | 'photos' | 'saving', done: number, total: number) => void;
+export type Progress = (
+  stage: 'preparing' | 'photos' | 'auto-photos' | 'saving',
+  done: number,
+  total: number,
+) => void;
 
 export function validatePassword(password: string): string | null {
   if (password.length < MIN_PASSWORD_LENGTH) {
@@ -97,12 +119,18 @@ export function createBackupService(deps: {
   memories: MemoryRepository;
   locationLog: LocationLogStore;
   dayNotes?: DayNoteStore;
+  autoCaptures?: AutoCaptureStore;
   photos: PhotoStore;
   random: RandomBytes;
   iterations?: number;
 }) {
   return {
-    async exportTo(out: ByteWriter, password: string, onProgress?: Progress): Promise<BackupStats> {
+    async exportTo(
+      out: ByteWriter,
+      password: string,
+      onProgress?: Progress,
+      options: ExportOptions = {},
+    ): Promise<BackupStats> {
       const problem = validatePassword(password);
       if (problem) throw new BackupFormatError(problem);
 
@@ -110,6 +138,8 @@ export function createBackupService(deps: {
       const memories = await deps.memories.getAll();
       const locationObservations = await deps.locationLog.listAll();
       const dayNotes = deps.dayNotes ? await deps.dayNotes.listAll() : [];
+      const autoCaptures =
+        options.includeAutoCaptures && deps.autoCaptures ? await deps.autoCaptures.listAll() : null;
 
       // Swap each photo's device path for a reference to its record in this file.
       const photoSources: string[] = [];
@@ -135,6 +165,7 @@ export function createBackupService(deps: {
         locationObservations,
         dayNotes,
         photos,
+        ...(autoCaptures ? { autoCaptures: autoCaptures.map(({ id, capturedAt }) => ({ id, capturedAt })) } : {}),
       };
       await writer.writeJson(manifest);
 
@@ -147,7 +178,18 @@ export function createBackupService(deps: {
       }
       onProgress?.('photos', photoSources.length, photoSources.length);
 
-      const end: EndMarker = { end: true, photos: photos.length };
+      let autoPhotos = 0;
+      if (autoCaptures && deps.autoCaptures) {
+        for (let i = 0; i < autoCaptures.length; i++) {
+          onProgress?.('auto-photos', i, autoCaptures.length);
+          const bytes = await deps.autoCaptures.read(autoCaptures[i].uri);
+          if (bytes) autoPhotos++;
+          else missingPhotos++;
+          await writer.writeRecord(bytes ?? new Uint8Array(0));
+        }
+      }
+
+      const end: EndMarker = { end: true, photos: photos.length, autoPhotos: autoCaptures?.length ?? 0 };
       await writer.writeJson(end);
 
       return {
@@ -156,6 +198,7 @@ export function createBackupService(deps: {
         missingPhotos,
         locationReadings: locationObservations.length,
         dayNotes: dayNotes.length,
+        autoPhotos,
       };
     },
 
@@ -181,6 +224,8 @@ export function createBackupService(deps: {
       );
 
       const restoredUris = new Map<string, string>();
+      const restoredAuto: string[] = [];
+      const autoList = Array.isArray(manifest.autoCaptures) ? manifest.autoCaptures : [];
       try {
         for (let i = 0; i < manifest.photos.length; i++) {
           onProgress?.('photos', i, manifest.photos.length);
@@ -191,13 +236,23 @@ export function createBackupService(deps: {
             restoredUris.set(photo.ref, await deps.photos.save(bytes, photo.extension));
           }
         }
+        for (let i = 0; i < autoList.length; i++) {
+          onProgress?.('auto-photos', i, autoList.length);
+          const bytes = await reader.readRecord();
+          if (bytes === null) throw new BackupFormatError('The backup file is incomplete.');
+          const id = autoList[i]?.id;
+          if (bytes.length > 0 && typeof id === 'string' && deps.autoCaptures && (await deps.autoCaptures.restore(id, bytes))) {
+            restoredAuto.push(id);
+          }
+        }
         const end = await reader.readJson<EndMarker>();
-        if (end.end !== true || end.photos !== manifest.photos.length) {
+        if (end.end !== true || end.photos !== manifest.photos.length || (end.autoPhotos ?? 0) !== autoList.length) {
           throw new BackupFormatError('The backup file is incomplete.');
         }
       } catch (error) {
         // Nothing was imported yet; don't leave orphaned photo files behind.
         restoredUris.forEach((uri) => deps.photos.remove(uri));
+        restoredAuto.forEach((id) => deps.autoCaptures?.remove(id));
         throw error;
       }
 
@@ -243,6 +298,7 @@ export function createBackupService(deps: {
         photosRestored: restoredUris.size,
         locationReadingsAdded,
         dayNotesAdded,
+        autoPhotosRestored: restoredAuto.length,
         backupCreatedAt: reader.header.createdAt,
       };
     },
